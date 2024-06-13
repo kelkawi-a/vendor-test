@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.8'  # Specify the Python version you need
+
+      - name: Install Trivy
+        run: |
+          python -m venv base_venv
+          source base_venv/bin/activate
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.18.3/trivy_0.18.3_Linux-64bit.deb
+          sudo dpkg -i trivy_0.18.3_Linux-64bit.deb
+
+      - name: Install and scan each wheel file
+        run: |
+          mkdir -p trivy_reports
+          for wheel in $(find . -name "*.whl"); do
+            package_name=$(basename "$wheel" | sed 's/-.*$//')
+            version=$(basename "$wheel" | sed 's/.*-\(.*\)-py.*.whl/\1/')
+            venv_name="${package_name}_${version}_venv"
+            python -m venv $venv_name
+            source $venv_name/bin/activate
+            pip install "$wheel"
+            trivy fs --exit-code 1 $venv_name/lib/python3.8/site-packages > "trivy_reports/${package_name}_${version}_report.txt"
+            deactivate
+          done
+
+      - name: Upload Trivy scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-reports
+          path: trivy_reports/
